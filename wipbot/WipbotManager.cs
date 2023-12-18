@@ -1,4 +1,5 @@
 ﻿using HMUI;
+using IPA;
 using IPA.Utilities;
 using Newtonsoft.Json;
 using SiraUtil.Logging;
@@ -20,8 +21,9 @@ using Zenject;
 
 namespace wipbot
 {
-    internal class WipbotManager : IInitializable
+    internal class WipbotManager : IInitializable, IDisposable
     {
+        [Inject] private readonly BeatmapLevelsModel beatmapLevelsModel;
         [Inject] private readonly LevelCollectionNavigationController navigationController;
         [Inject] private readonly SelectLevelCategoryViewController categoryController;
         [Inject] private readonly LevelFilteringNavigationController filteringController;
@@ -46,6 +48,7 @@ namespace wipbot
 
         public void OnMessageReceived(ChatMessage ChatMessage)
         {
+            Logger.Debug($"Chat message received: {ChatMessage.UserName}: {ChatMessage.Content}");
             string[] msgSplit = ChatMessage.Content.Split(' ');
             if (msgSplit[0].ToLower().StartsWith(Config.CommandRequestWip))
             {
@@ -56,29 +59,36 @@ namespace wipbot
                     ChatMessage.IsSubscriber ? Config.QueueLimits.Subscriber :
                     Config.QueueLimits.User;
                 int requestCount = WipQueue.Count(item => item.UserName == ChatMessage.UserName);
+                Logger.Debug($"Request limit: {requestLimit}, request count: {requestCount}");
                 if (msgSplit.Length > 1 && msgSplit[1].ToLower() == Config.KeywordUndoRequest)
                 {
                     WipQueue.Remove(WipQueue.Where(x => x.UserName == ChatMessage.UserName).FirstOrDefault());
+                    Logger.Debug($"Removed request from {ChatMessage.UserName}");
                 }
                 else if (requestLimit == 0)
                 {
                     ChatIntegration.SendChatMessage(Config.ErrorMessageNoPermission);
+                    Logger.Debug($"No permission to request from {ChatMessage.UserName}");
                 }
                 else if (requestCount >= requestLimit)
                 {
                     ChatIntegration.SendChatMessage(Config.ErrorMessageUserMaxRequests);
+                    Logger.Debug($"User {ChatMessage.UserName} has reached their request limit");
                 }
                 else if (WipQueue.Count >= Config.QueueSize)
                 {
                     ChatIntegration.SendChatMessage(Config.ErrorMessageQueueFull);
+                    Logger.Debug($"Queue is full");
                 }
                 else if (msgSplit.Length > 1 && msgSplit[1] == "***")
                 {
                     ChatIntegration.SendChatMessage(Config.ErrorMessageLinkBlocked);
+                    Logger.Debug($"Link blocked");
                 }
                 else if (msgSplit.Length != 2 || (msgSplit[1].All(Config.RequestCodeCharacterWhitelist.Contains) == false && Config.UrlWhitelist.Any(msgSplit[1].Contains) == false))
                 {
                     ChatIntegration.SendChatMessage(Config.MessageInvalidRequest);
+                    Logger.Debug($"Invalid request from {ChatMessage.UserName}");
                 }
                 else
                 {
@@ -130,10 +140,13 @@ namespace wipbot
                 {
                     IsDownloading = true;
                     await DownloadAndExtractZipAsync(item.DownloadUrl, "UserData\\wipbot", Path.Combine(UnityGame.InstallPath, Config.WipFolder));
-                    IsDownloading = false;
                 }
             }
             catch (ThreadAbortException)
+            {
+                return;
+            }
+            catch (ObjectDisposedException)
             {
                 return;
             }
@@ -141,7 +154,10 @@ namespace wipbot
             {
                 Logger.Error(e);
             }
-            IsDownloading = false;
+            finally
+            {
+                IsDownloading = false;
+            }
         }
 
         private async Task DownloadAndExtractZipAsync(string url, string downloadFolder, string extractFolder)
@@ -239,7 +255,7 @@ namespace wipbot
                 SongCore.Loader.Instance.RefreshSongs(false);
                 SongCore.Loader.OnLevelPacksRefreshed += OnLevelsRefreshed;
 
-                void OnLevelsRefreshed()
+                async void OnLevelsRefreshed()
                 {
                     SongCore.Data.SongData customLevelData = SongCore.Loader.Instance.LoadCustomLevelSongData(wipFolderPath);
                     CustomPreviewBeatmapLevel customPreviewLevel = SongCore.Loader.LoadSong(customLevelData.SaveData, wipFolderPath, out string hash);
@@ -249,6 +265,12 @@ namespace wipbot
                     categoryController.LevelFilterCategoryIconSegmentedControlDidSelectCell(control, 3);
                     searchController.ResetCurrentFilterParams();
                     filteringController.UpdateSecondChildControllerContent(SelectLevelCategoryViewController.LevelCategory.All);
+                    while (
+                        beatmapLevelsModel.allLoadedBeatmapLevelPackCollection.beatmapLevelPacks.Any(levelPack => 
+                        levelPack.beatmapLevelCollection.beatmapLevels.Any(level => 
+                        level.levelID.Contains(hash)))) 
+                        await Task.Delay(1);
+
                     navigationController.SelectLevel(customPreviewLevel);
                 }
 
@@ -332,6 +354,15 @@ namespace wipbot
             {
                 Logger.Error(e);
             }
+        }
+
+        [OnExit]
+        public void Dispose()
+        {
+            Logger.Info("Disposing WipbotManager...");
+            DownloadThread?.Abort();
+            Application.quitting -= Application_quitting;
+            DownloadQueue.Dispose();
         }
     }
 }

@@ -24,8 +24,9 @@ namespace wipbot
             {
                 Container.BindInstance(config.Generated<WBConfig>()).AsSingle();
                 var chat = InitializeChat(logger);
-                
-                if (chat != null) Container.BindInstance(chat).AsSingle();
+
+                if (chat != null) Container.BindInterfacesAndSelfTo<IChatIntegration>().FromInstance(chat).AsSingle();
+                Container.QueueForInject(chat);
             });
             zenject.Install(Location.Menu, Container =>
             {
@@ -53,14 +54,7 @@ namespace wipbot
             }
         }
 
-        private static IChatIntegration InitCatCoreInterop()
-        {
-            return new CatCoreInterop();
-        }
-
-        private static IChatIntegration InitChatPlexSDKInterop()
-        {
-            return new ChatPlexSDKInterop();
-        }
+        private static IChatIntegration InitCatCoreInterop() => new CatCoreInterop();
+        private static IChatIntegration InitChatPlexSDKInterop() => new ChatPlexSDKInterop();
     }
 }
