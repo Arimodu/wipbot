@@ -1,10 +1,12 @@
 ﻿using HMUI;
 using IPA;
 using IPA.Utilities;
+using ModestTree;
 using Newtonsoft.Json;
 using SiraUtil.Logging;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -23,7 +25,7 @@ namespace wipbot
 {
     internal class WipbotManager : IInitializable, IDisposable
     {
-        [Inject] private readonly BeatmapLevelsModel beatmapLevelsModel;
+        [Inject] private readonly BeatmapLevelsModel LevelsModel;
         [Inject] private readonly LevelCollectionNavigationController navigationController;
         [Inject] private readonly SelectLevelCategoryViewController categoryController;
         [Inject] private readonly LevelFilteringNavigationController filteringController;
@@ -173,7 +175,7 @@ namespace wipbot
                 {
                     WipbotButtonController.WipButtonText = "skip (" + e.ProgressPercentage + "%)";
                 };
-                webClient.Headers.Add(HttpRequestHeader.UserAgent, "Beat Saber wipbot v1.14.0");
+                webClient.Headers.Add(HttpRequestHeader.UserAgent, "Beat Saber wipbot (Arimodu fork) v1.14.0");
 
                 if (!Directory.Exists(downloadFolder)) Directory.CreateDirectory(downloadFolder);
                 await webClient.DownloadFileTaskAsync(new Uri(url), downloadFolder + "\\wipbot_tmp.zip");
@@ -255,23 +257,22 @@ namespace wipbot
                 SongCore.Loader.Instance.RefreshSongs(false);
                 SongCore.Loader.OnLevelPacksRefreshed += OnLevelsRefreshed;
 
-                async void OnLevelsRefreshed()
+                void OnLevelsRefreshed()
                 {
-                    SongCore.Data.SongData customLevelData = SongCore.Loader.Instance.LoadCustomLevelSongData(wipFolderPath);
-                    CustomPreviewBeatmapLevel customPreviewLevel = SongCore.Loader.LoadSong(customLevelData.SaveData, wipFolderPath, out string hash);
+                    var customLevelTuple = SongCore.Loader.LoadCustomLevel(wipFolderPath) ?? throw new InvalidDataException("WIP not loaded");
                     SongCore.Loader.OnLevelPacksRefreshed -= OnLevelsRefreshed;
                     SegmentedControl control = categoryController.transform.Find("HorizontalIconSegmentedControl").GetComponent<IconSegmentedControl>();
                     control.SelectCellWithNumber(3);
                     categoryController.LevelFilterCategoryIconSegmentedControlDidSelectCell(control, 3);
-                    searchController.ResetCurrentFilterParams();
+                    searchController.ResetAllFilterSettings(false);
                     filteringController.UpdateSecondChildControllerContent(SelectLevelCategoryViewController.LevelCategory.All);
-                    while (
-                        beatmapLevelsModel.allLoadedBeatmapLevelPackCollection.beatmapLevelPacks.Any(levelPack => 
-                        levelPack.beatmapLevelCollection.beatmapLevels.Any(level => 
-                        level.levelID.Contains(hash)))) 
-                        await Task.Delay(1);
-
-                    navigationController.SelectLevel(customPreviewLevel);
+                    Task.Run(async () =>
+                    {
+                        await Task.Delay(10);
+                        var beatmapLevel = customLevelTuple.Item2;
+                        var characteristic = beatmapLevel.GetCharacteristics().First();
+                        ShowLevelPreview(beatmapLevel.levelID, characteristic.ToString(), beatmapLevel.GetDifficulties(characteristic).First().ToString());
+                    });
                 }
 
                 ChatIntegration.SendChatMessage(Config.MessageDownloadSuccess);
@@ -293,6 +294,101 @@ namespace wipbot
             finally
             {
                 WipbotButtonController.UpdateButtonState(WipQueue.ToArray());
+            }
+        }
+
+        public void ShowLevelPreview(string levelId, string characteristicName, string difficultyName)
+        {
+            var selectionController = GameObject.Find("LevelSelectionNavigationController").GetComponent<LevelSelectionNavigationController>();
+
+            if (selectionController == null)
+            {
+                Logger.Error("Could not find LevelSelectionNavigationController! Cannot show preview!");
+                return;
+            }
+
+            var beatmapPack = LevelsModel.GetLevelPackForLevelId(levelId);
+            var beatmapLevel = LevelsModel.GetBeatmapLevel(levelId);
+            var beatmapCharacteristics = beatmapLevel.GetCharacteristics();
+            var beatmapDifficultySet = beatmapLevel.GetDifficulties(beatmapCharacteristics.First((x) => x.serializedName == characteristicName));
+            var beatmapDifficulty = beatmapDifficultySet.Where((x) => x == (BeatmapDifficulty)Enum.Parse(typeof(BeatmapDifficulty), difficultyName)).FirstOrDefault();
+
+            try
+            {
+                try
+                {
+                    ForceSelectFilterCategory(SelectLevelCategoryViewController.LevelCategory.All);
+                }
+                catch (System.NullReferenceException)
+                {
+                    Logger.Error("Could not force select LevelCategory.All. Trying to show level preview anyway...");
+                }
+
+                selectionController.Setup(SongPackMask.all, BeatmapDifficultyMask.All, new BeatmapCharacteristicSO[0], false, false, "Play", beatmapPack, SelectLevelCategoryViewController.LevelCategory.All, beatmapLevel, true);
+                var characteristicsSegmentedControl = selectionController.
+                    _levelCollectionNavigationController.
+                    _levelDetailViewController.
+                    _standardLevelDetailView.
+                    _beatmapCharacteristicSegmentedControlController;
+
+                characteristicsSegmentedControl.SetData(characteristicsSegmentedControl._currentlyAvailableBeatmapCharacteristics, beatmapCharacteristics.First((x) => x.serializedName == characteristicName), new HashSet<BeatmapCharacteristicSO>());
+
+                var difficultyIndex = selectionController.
+                    _levelCollectionNavigationController.
+                    _levelDetailViewController.
+                    _standardLevelDetailView.
+                    _beatmapDifficultySegmentedControlController.
+                    GetClosestDifficultyIndex(beatmapDifficulty);
+
+                var difficultySegmentedControl = selectionController.
+                    _levelCollectionNavigationController.
+                    _levelDetailViewController.
+                    _standardLevelDetailView.
+                    _beatmapDifficultySegmentedControlController.
+                    _difficultySegmentedControl;
+
+                difficultySegmentedControl.SelectCellWithNumber(difficultyIndex);
+
+                selectionController.
+                    _levelCollectionNavigationController.
+                    _levelDetailViewController.
+                    _standardLevelDetailView.
+                    _beatmapDifficultySegmentedControlController.
+                    HandleDifficultySegmentedControlDidSelectCell(difficultySegmentedControl, difficultyIndex);
+            }
+            catch (Exception e)
+            {
+                Logger.Error($"Failed to show preview for {levelId}...");
+                Logger.Critical(e);
+            }
+        }
+
+        private void ForceSelectFilterCategory(SelectLevelCategoryViewController.LevelCategory levelCategory)
+        {
+            try
+            {
+                var selectionController = GameObject.Find("LevelSelectionNavigationController").GetComponent<LevelSelectionNavigationController>();
+
+                var navController = selectionController._levelFilteringNavigationController;
+
+                if (navController.selectedLevelCategory != levelCategory)
+                {
+                    var categorySelector = selectionController._levelFilteringNavigationController._selectLevelCategoryViewController;
+                    if (categorySelector != null)
+                    {
+                        var iconSegmentControl = categorySelector._levelFilterCategoryIconSegmentedControl;
+                        var categoryInfos = categorySelector._levelCategoryInfos;
+                        var index = categoryInfos.Select(x => x.levelCategory).ToArray().IndexOf(levelCategory);
+
+                        iconSegmentControl.SelectCellWithNumber(index);
+                        categorySelector.LevelFilterCategoryIconSegmentedControlDidSelectCell(iconSegmentControl, index);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.Error("Failed to force category selection");
+                Logger.Critical(e);
             }
         }
 

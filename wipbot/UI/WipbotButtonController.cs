@@ -1,6 +1,6 @@
 ﻿using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
-using BeatSaberMarkupLanguage.Util;
+using BeatSaberMarkupLanguage.Components;
 using System;
 using System.Linq;
 using System.Text;
@@ -11,7 +11,7 @@ using Zenject;
 #pragma warning disable IDE0051 // Remove unused private members
 namespace wipbot.UI
 {
-    public class WipbotButtonController : NotifiableSingleton<WipbotButtonController>, IInitializable
+    public class WipbotButtonController : NotifiableBase, IInitializable
     {
         [Inject] private readonly WBConfig Config;
         [Inject] private readonly MainThreadDispatcher _mainThreadDispatcher;
@@ -58,7 +58,7 @@ namespace wipbot.UI
         public void Initialize()
         {
             if (wipbotButtonTransform != null) return;
-            BSMLParser.instance.Parse(
+            BSMLParser.Instance.Parse(
                 "<bg xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:schemaLocation='https://monkeymanboy.github.io/BSML-Docs/ https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd'>" +
                 "<button id='wipbot-button' active='~FakeButtonActive' text='wip' font-size='3' on-click='wipbot-click' anchor-pos-x='" + Config.ButtonPositionX + "' anchor-pos-y='" + Config.ButtonPositionY + "' pref-height='6' pref-width='11' />" +
                 "<action-button id='wipbot-button2' active='~WipButtonActive' text='~WipButtonText' hover-hint='~WipButtonHint' word-wrapping='false' font-size='3' on-click='wipbot-click2' anchor-pos-x='" + (Config.ButtonPositionX - 80) + "' anchor-pos-y='" + (Config.ButtonPositionY + 3) + "' pref-height='6' pref-width='11' />" +
