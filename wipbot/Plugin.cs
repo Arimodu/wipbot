@@ -15,14 +15,18 @@ namespace wipbot
     [NoEnableDisable]
     public class Plugin
     {
+        private static WBConfig Config; // Fix reload causing 'InvalidOperationException: SetStore can only be called once'
+
         [Init]
         public Plugin(IPALogger logger, IPA.Config.Config config, Zenjector zenject)
         {
             zenject.UseLogger(logger);
 
+            if (Config == null) Config = config.Generated<WBConfig>();
+
             zenject.Install(Location.App, Container =>
             {
-                Container.BindInstance(config.Generated<WBConfig>()).AsSingle();
+                Container.BindInstance(Config).AsSingle();
                 var chat = InitializeChat(logger);
 
                 if (chat != null) Container.BindInterfacesAndSelfTo<IChatIntegration>().FromInstance(chat).AsSingle();
