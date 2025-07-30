@@ -207,6 +207,19 @@ namespace wipbot
       }
     }
 
+    public void MigrateConfig_3()
+    {
+      if (Config.Instance.ConfigVersion == 3)
+      {
+        // New website!
+        var index = Config.Instance.RequestCodePrefixDownloadUrlPairs.FindIndex(x => x.Equals("http://catse.net/wips/%s.zip"));
+        Config.Instance.RequestCodePrefixDownloadUrlPairs[index] = "https://wipbot.com/wips/%s.zip";
+        Config.Instance.MessageHelp.Replace("http://catse.net/wip", "https://wipbot.com");
+        Config.Instance.ConfigVersion = 4;
+      }
+    }
+
+
     [Init]
     public Plugin(IPALogger logger, IPA.Config.Config config)
     {
@@ -216,6 +229,7 @@ namespace wipbot
       MigrateConfig_0();
       MigrateConfig_1();
       MigrateConfig_2();
+      MigrateConfig_3();
     }
 
     [OnStart]
