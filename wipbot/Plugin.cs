@@ -216,7 +216,7 @@ namespace wipbot
         if (index != -1) { 
           Config.Instance.RequestCodePrefixDownloadUrlPairs[index] = "https://wipbot.com/wips/%s.zip";
         }
-        Config.Instance.MessageHelp.Replace("http://catse.net/wip", "https://wipbot.com");
+        Config.Instance.MessageHelp = Config.Instance.MessageHelp.Replace("http://catse.net/wip", "https://wipbot.com");
         Config.Instance.ConfigVersion = 4;
       }
     }
