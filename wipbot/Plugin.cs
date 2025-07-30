@@ -63,7 +63,7 @@ namespace wipbot
     [NonNullable]
     public virtual List<string> RequestCodePrefixDownloadUrlPairs { get; set; } = [
       "0",
-      "http://catse.net/wips/%s.zip"
+      "https://wipbot.com/wips/%s.zip"
     ];
     public virtual string RequestCodeCharacterWhitelist { get; set; } = "0123456789abcdefABCDEF";
 
@@ -98,7 +98,7 @@ namespace wipbot
     public virtual int ButtonPrefWidth { get; set; } = 11;
     public virtual int ButtonPrefHeight { get; set; } = 6;
 
-    public virtual string MessageHelp { get; set; } = "! To request a WIP, go to http://catse.net/wip or upload the .zip anywhere on discord or on google drive, copy the download link and use the command !wip (link)";
+    public virtual string MessageHelp { get; set; } = "! To request a WIP, go to https://wipbot.com or upload the .zip anywhere on discord or on google drive, copy the download link and use the command !wip (link)";
     public virtual string MessageInvalidRequest2 { get; set; } = "! Invalid request";
     public virtual string MessageWipRequested { get; set; } = "! WIP requested";
     public virtual string MessageUndoRequest { get; set; } = "! Removed your latest request from wip queue";
@@ -207,6 +207,21 @@ namespace wipbot
       }
     }
 
+    public void MigrateConfig_3()
+    {
+      if (Config.Instance.ConfigVersion == 3)
+      {
+        // New website!
+        var index = Config.Instance.RequestCodePrefixDownloadUrlPairs.FindIndex(x => x.Equals("http://catse.net/wips/%s.zip"));
+        if (index != -1) { 
+          Config.Instance.RequestCodePrefixDownloadUrlPairs[index] = "https://wipbot.com/wips/%s.zip";
+        }
+        Config.Instance.MessageHelp = Config.Instance.MessageHelp.Replace("http://catse.net/wip", "https://wipbot.com");
+        Config.Instance.ConfigVersion = 4;
+      }
+    }
+
+
     [Init]
     public Plugin(IPALogger logger, IPA.Config.Config config)
     {
@@ -216,6 +231,7 @@ namespace wipbot
       MigrateConfig_0();
       MigrateConfig_1();
       MigrateConfig_2();
+      MigrateConfig_3();
     }
 
     [OnStart]
