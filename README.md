@@ -6,7 +6,7 @@ Make sure your channel moderation settings allow posting links in chat, otherwis
 ### This plugin adds the ``!wip`` command to your Twitch chat.  
 Examples:  
 ``!wip`` prints a help message in chat  
-``!wip e5a5bb`` using a request code obtained from http://catse.net/wip  
+``!wip e5a5bb`` using a request code obtained from https://wipbot.com  
 ``!wip https://cdn.discordapp.com/attachments/9106712553161/9165053429928/Example_Wip.zip`` using Discord  
 ``!wip https://drive.google.com/file/d/1rcs9V_aq1kBjNhAQUdFz7f7kvWR/view?usp=sharing`` using Google Drive  
 ``!wip oops`` removes users most recent request from queue

@@ -1,4 +1,4 @@
-﻿using IPA;
+using IPA;
 using IPA.Config.Stores;
 using SiraUtil.Zenject;
 using System.Linq;
