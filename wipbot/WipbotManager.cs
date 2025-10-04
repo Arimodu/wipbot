@@ -1,6 +1,6 @@
-﻿using HMUI;
-using IPA;
+﻿using IPA;
 using IPA.Utilities;
+using ModestTree;
 using Newtonsoft.Json;
 using SiraUtil.Logging;
 using System;
@@ -23,10 +23,9 @@ namespace wipbot
 {
     internal class WipbotManager : IInitializable, IDisposable
     {
-        [Inject] private readonly BeatmapLevelsModel beatmapLevelsModel;
+        [Inject] private readonly UnityMainThreadDispatcher mainThreadDispatcher;
+        [Inject] private readonly LevelSelectionNavigationController selectionController;
         [Inject] private readonly LevelCollectionNavigationController navigationController;
-        [Inject] private readonly SelectLevelCategoryViewController categoryController;
-        [Inject] private readonly LevelFilteringNavigationController filteringController;
         [Inject] private readonly LevelSearchViewController searchController;
         [Inject] private readonly WipbotButtonController WipbotButtonController;
         [Inject] private readonly WBConfig Config;
@@ -49,59 +48,81 @@ namespace wipbot
         public void OnMessageReceived(ChatMessage ChatMessage)
         {
             Logger.Debug($"Chat message received: {ChatMessage.UserName}: {ChatMessage.Content}");
-            string[] msgSplit = ChatMessage.Content.Split(' ');
-            if (msgSplit[0].ToLower().StartsWith(Config.CommandRequestWip))
+            try
             {
-                int requestLimit = 
-                    ChatMessage.IsBroadcaster ? 99 :
-                    ChatMessage.IsModerator ? Config.QueueLimits.Moderator :
-                    ChatMessage.IsVip ? Config.QueueLimits.Vip :
-                    ChatMessage.IsSubscriber ? Config.QueueLimits.Subscriber :
-                    Config.QueueLimits.User;
-                int requestCount = WipQueue.Count(item => item.UserName == ChatMessage.UserName);
-                Logger.Debug($"Request limit: {requestLimit}, request count: {requestCount}");
-                if (msgSplit.Length > 1 && msgSplit[1].ToLower() == Config.KeywordUndoRequest)
+                string[] msgSplit = ChatMessage.Content.Split(' ');
+                if (msgSplit[0].ToLower().StartsWith(Config.CommandRequestWip))
                 {
-                    WipQueue.Remove(WipQueue.Where(x => x.UserName == ChatMessage.UserName).FirstOrDefault());
-                    Logger.Debug($"Removed request from {ChatMessage.UserName}");
-                }
-                else if (requestLimit == 0)
-                {
-                    ChatIntegration.SendChatMessage(Config.ErrorMessageNoPermission);
-                    Logger.Debug($"No permission to request from {ChatMessage.UserName}");
-                }
-                else if (requestCount >= requestLimit)
-                {
-                    ChatIntegration.SendChatMessage(Config.ErrorMessageUserMaxRequests);
-                    Logger.Debug($"User {ChatMessage.UserName} has reached their request limit");
-                }
-                else if (WipQueue.Count >= Config.QueueSize)
-                {
-                    ChatIntegration.SendChatMessage(Config.ErrorMessageQueueFull);
-                    Logger.Debug($"Queue is full");
-                }
-                else if (msgSplit.Length > 1 && msgSplit[1] == "***")
-                {
-                    ChatIntegration.SendChatMessage(Config.ErrorMessageLinkBlocked);
-                    Logger.Debug($"Link blocked");
-                }
-                else if (msgSplit.Length != 2 || (msgSplit[1].All(Config.RequestCodeCharacterWhitelist.Contains) == false && Config.UrlWhitelist.Any(msgSplit[1].Contains) == false))
-                {
-                    ChatIntegration.SendChatMessage(Config.MessageInvalidRequest);
-                    Logger.Debug($"Invalid request from {ChatMessage.UserName}");
-                }
-                else
-                {
-                    string wipUrl = msgSplit[1];
+                    int requestLimit =
+                        ChatMessage.IsBroadcaster ? 99 :
+                        ChatMessage.IsModerator ? Config.QueueLimits.Moderator :
+                        ChatMessage.IsVip ? Config.QueueLimits.Vip :
+                        ChatMessage.IsSubscriber ? Config.QueueLimits.Subscriber :
+                        Config.QueueLimits.User;
+                    int requestCount = WipQueue.Count(item => item.UserName == ChatMessage.UserName);
+                    Logger.Debug($"Request limit: {requestLimit}, request count: {requestCount}");
+                    if (msgSplit.Length > 1 && msgSplit[1].ToLower() == Config.KeywordUndoRequest)
+                    {
+                        WipQueue.Remove(WipQueue.Where(x => x.UserName == ChatMessage.UserName).FirstOrDefault());
+                        WipbotButtonController.UpdateButtonState(WipQueue.ToArray()); // Updating the button state would actually be helpful - rip another 3 hours :(
+                        Logger.Debug($"Removed request from {ChatMessage.UserName}");
+                    }
+                    else if (requestLimit == 0)
+                    {
+                        ChatIntegration.SendChatMessage(Config.ErrorMessageNoPermission);
+                        Logger.Debug($"No permission to request from {ChatMessage.UserName}");
+                    }
+                    else if (requestCount >= requestLimit)
+                    {
+                        ChatIntegration.SendChatMessage(Config.ErrorMessageUserMaxRequests);
+                        Logger.Debug($"User {ChatMessage.UserName} has reached their request limit");
+                    }
+                    else if (WipQueue.Count >= Config.QueueSize)
+                    {
+                        ChatIntegration.SendChatMessage(Config.ErrorMessageQueueFull);
+                        Logger.Debug($"Queue is full");
+                    }
+                    else if (msgSplit.Length > 1 && msgSplit[1] == "***")
+                    {
+                        ChatIntegration.SendChatMessage(Config.ErrorMessageLinkBlocked);
+                        Logger.Debug($"Link blocked");
+                    }
+                    // Note: Removed length checking because it seems there is a bug in ChatPlex where its first message after scene change appends some garbage at the end separated by a space
+                    else if ((msgSplit[1].All(Config.RequestCodeCharacterWhitelist.Contains) == false && Config.UrlWhitelist.Any(msgSplit[1].Contains) == false))
+                    {
+                        ChatIntegration.SendChatMessage(Config.MessageInvalidRequest);
+                        Logger.Debug($"Invalid request from {ChatMessage.UserName}");
+                    }
+                    else
+                    {
+                        string wipUrl = msgSplit[1];
 
-                    if (msgSplit[1].IndexOf(".") == -1)
-                        wipUrl = Config.RequestCodeDownloadUrl.Replace("%s", msgSplit[1]);
-                    for (int i = 0; i < Config.UrlFindReplace.Count; i += 2)
-                        wipUrl = wipUrl.Replace(Config.UrlFindReplace[i], Config.UrlFindReplace[i + 1]);
-                    WipQueue.Enqueue(new QueueItem() { UserName = ChatMessage.UserName, DownloadUrl = wipUrl });
-                    ChatIntegration.SendChatMessage(Config.MessageWipRequested);
-                    WipbotButtonController.UpdateButtonState(WipQueue.ToArray());
+                        if (msgSplit[1].IndexOf(".") == -1)
+                        {
+                            wipUrl = "";
+                            for (int i = 0; i < Config.RequestCodePrefixDownloadUrlPairs.Count; i += 2)
+                            {
+                                if (msgSplit[1].StartsWith(Config.RequestCodePrefixDownloadUrlPairs[i]))
+                                {
+                                    wipUrl = Config.RequestCodePrefixDownloadUrlPairs[i + 1].Replace("%s", msgSplit[1]);
+                                    break;
+                                }
+                            }
+                        }
+
+                        for (int i = 0; i < Config.UrlFindReplace.Count; i += 2)
+                            wipUrl = wipUrl.Replace(Config.UrlFindReplace[i], Config.UrlFindReplace[i + 1]);
+
+                        WipQueue.Enqueue(new QueueItem() { UserName = ChatMessage.UserName, DownloadUrl = wipUrl });
+                        ChatIntegration.SendChatMessage(Config.MessageWipRequested);
+                        WipbotButtonController.UpdateButtonState(WipQueue.ToArray());
+                    }
                 }
+            }
+            catch (Exception e)
+            {
+                ChatIntegration.SendChatMessage(Config.ErrorMessageOther.Replace("%s", e.Message));
+                Logger.Error(e);
             }
         }
 
@@ -166,12 +187,12 @@ namespace wipbot
             string wipFolderPath = "";
             try
             {
-                WipbotButtonController.WipButtonText = "skip (0%)";
+                WipbotButtonController.BlueButtonText = "skip (0%)";
                 ChatIntegration.SendChatMessage(Config.MessageDownloadStarted);
-                WebClient webClient = new WebClient();
+                WebClient webClient = new();
                 webClient.DownloadProgressChanged += (s, e) =>
                 {
-                    WipbotButtonController.WipButtonText = "skip (" + e.ProgressPercentage + "%)";
+                    WipbotButtonController.BlueButtonText = "skip (" + e.ProgressPercentage + "%)";
                 };
                 webClient.Headers.Add(HttpRequestHeader.UserAgent, "Beat Saber wipbot v1.14.0");
 
@@ -255,23 +276,19 @@ namespace wipbot
                 SongCore.Loader.Instance.RefreshSongs(false);
                 SongCore.Loader.OnLevelPacksRefreshed += OnLevelsRefreshed;
 
-                async void OnLevelsRefreshed()
+                void OnLevelsRefreshed()
                 {
-                    SongCore.Data.SongData customLevelData = SongCore.Loader.Instance.LoadCustomLevelSongData(wipFolderPath);
-                    CustomPreviewBeatmapLevel customPreviewLevel = SongCore.Loader.LoadSong(customLevelData.SaveData, wipFolderPath, out string hash);
                     SongCore.Loader.OnLevelPacksRefreshed -= OnLevelsRefreshed;
-                    SegmentedControl control = categoryController.transform.Find("HorizontalIconSegmentedControl").GetComponent<IconSegmentedControl>();
-                    control.SelectCellWithNumber(3);
-                    categoryController.LevelFilterCategoryIconSegmentedControlDidSelectCell(control, 3);
-                    searchController.ResetCurrentFilterParams();
-                    filteringController.UpdateSecondChildControllerContent(SelectLevelCategoryViewController.LevelCategory.All);
-                    while (
-                        beatmapLevelsModel.allLoadedBeatmapLevelPackCollection.beatmapLevelPacks.Any(levelPack => 
-                        levelPack.beatmapLevelCollection.beatmapLevels.Any(level => 
-                        level.levelID.Contains(hash)))) 
-                        await Task.Delay(1);
 
-                    navigationController.SelectLevel(customPreviewLevel);
+                    searchController.ResetFilter(false);
+                    ForceSelectSongViewCategory(SelectLevelCategoryViewController.LevelCategory.All);
+
+                    // Note to the unfortunate soul that might think this could be improved...
+                    // No, it *has* to be like this, because navigationController will not properly select a song if its not a direct reference to the CustomLevelsRepository
+                    // And no, songcore doesnt give you the reference, because it doesnt work, trust me, I spent 4 hours figuring this out
+                    var (hash, _) = SongCore.Loader.LoadCustomLevel(wipFolderPath).Value;
+                    var beatmapPack = SongCore.Loader.CustomLevelsRepository.beatmapLevelPacks.FirstOrDefault(levelPack => levelPack.AllBeatmapLevels().Any(level => level.levelID.Contains(hash)));
+                    mainThreadDispatcher.EnqueueWithDelay(() => navigationController.SelectLevel(beatmapPack.AllBeatmapLevels().First(x => x.levelID.Contains(hash))), 500);
                 }
 
                 ChatIntegration.SendChatMessage(Config.MessageDownloadSuccess);
@@ -293,6 +310,33 @@ namespace wipbot
             finally
             {
                 WipbotButtonController.UpdateButtonState(WipQueue.ToArray());
+            }
+        }
+
+        private void ForceSelectSongViewCategory(SelectLevelCategoryViewController.LevelCategory levelCategory)
+        {
+            try
+            {
+                var navController = selectionController._levelFilteringNavigationController;
+
+                if (navController.selectedLevelCategory != levelCategory)
+                {
+                    var categorySelector = selectionController._levelFilteringNavigationController._selectLevelCategoryViewController;
+                    if (categorySelector != null)
+                    {
+                        var iconSegmentControl = categorySelector._levelFilterCategoryIconSegmentedControl;
+                        var categoryInfos = categorySelector._levelCategoryInfos;
+                        var index = categoryInfos.Select(x => x.levelCategory).ToArray().IndexOf(levelCategory);
+
+                        iconSegmentControl.SelectCellWithNumber(index);
+                        categorySelector.LevelFilterCategoryIconSegmentedControlDidSelectCell(iconSegmentControl, index);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.Error("Failed to force category selection");
+                Logger.Critical(e);
             }
         }
 

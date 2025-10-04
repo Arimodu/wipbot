@@ -6,7 +6,9 @@ using System.Runtime.CompilerServices;
 using wipbot.Interfaces;
 using wipbot.Interop;
 using wipbot.UI;
+using Zenject;
 using IPALogger = IPA.Logging.Logger;
+using static wipbot.Utils.ConfigMigrator;
 
 [assembly: InternalsVisibleTo(GeneratedStore.AssemblyVisibilityTarget)]
 namespace wipbot
@@ -22,15 +24,16 @@ namespace wipbot
 
             zenject.Install(Location.App, Container =>
             {
-                Container.BindInstance(config.Generated<WBConfig>()).AsSingle();
+                Container.BindInstance(MigrateConfig(config.Generated<WBConfig>())).AsSingle();
                 var chat = InitializeChat(logger);
+                Container.BindInterfacesAndSelfTo<UnityMainThreadDispatcher>().AsSingle();
 
                 if (chat != null) Container.BindInterfacesAndSelfTo<IChatIntegration>().FromInstance(chat).AsSingle();
                 Container.QueueForInject(chat);
             });
             zenject.Install(Location.Menu, Container =>
             {
-                Container.BindInterfacesAndSelfTo<WipbotButtonController>().AsSingle().When((x) => Container.HasBinding<IChatIntegration>());
+                Container.BindInterfacesAndSelfTo<WipbotButtonController>().FromNewComponentAsViewController().AsSingle().When((x) => Container.HasBinding<IChatIntegration>());
                 Container.BindInterfacesAndSelfTo<WipbotManager>().AsSingle().When((x) => Container.HasBinding<IChatIntegration>());
             });
         }
